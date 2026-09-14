@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teleop ESP32-CAM — DualShock 4 Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0f1117;
+            --bg-surface: #171923;
+            --bg-card: #1f2333;
+            --border-color: #2d3348;
+            --accent-primary: #3b82f6;
+            --accent-primary-hover: #2563eb;
+            --accent-rec: #ef4444;
+            --accent-rec-glow: rgba(239, 68, 68, 0.4);
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --font-main: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-color);
+            padding: 14px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .tag {
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: #2563eb33;
+            color: #60a5fa;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid #3b82f644;
+        }
+
+        .connection-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            width: 180px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        button {
+            font-family: var(--font-main);
+            font-weight: 600;
+            font-size: 0.88rem;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        button:active {
+            transform: scale(0.97);
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-primary-hover);
+        }
+
+        .btn-rec-start {
+            background: #dc2626;
+            color: #fff;
+        }
+
+        .btn-rec-start:hover {
+            background: #b91c1c;
+        }
+
+        .btn-rec-stop {
+            background: #4b5563;
+            color: #fff;
+        }
+
+        .btn-rec-stop:hover {
+            background: #374151;
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: #282d42;
+        }
+
+        main {
+            flex: 1;
+            padding: 20px;
+            max-width: 1350px;
+            margin: 0 auto;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 950px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .panel-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Stream Container */
+        .viewport-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border-color);
+        }
+
+        #stream-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .stream-placeholder {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .hud-rec-badge {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            background: rgba(220, 38, 38, 0.9);
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 0 15px var(--accent-rec-glow);
+            animation: pulse 1.5s infinite;
+        }
+
+        .hud-rec-badge.active {
+            display: flex;
+        }
+
+        .rec-dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .hud-cmd-badge {
+            position: absolute;
+            bottom: 14px;
+            right: 14px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(6px);
+            color: var(--accent-primary);
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 8px;
+        }
+
+        /* Stats Strip */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .stat-label {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-top: 4px;
+            color: var(--text-main);
+        }
+
+        /* Gamepad Card */
+        .gamepad-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .gamepad-status-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #374151;
+            color: #9ca3af;
+        }
+
+        .status-pill.connected {
+            background: #064e3b;
+            color: #34d399;
+            border: 1px solid #059669;
+        }
+
+        .status-pill.recording {
+            background: #7f1d1d;
+            color: #f87171;
+            border: 1px solid #dc2626;
+        }
+
+        .stick-visualizer-container {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .stick-box {
+            width: 100px;
+            height: 100px;
+            background: #11141f;
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+            flex-shrink: 0;
+        }
+
+        .stick-crosshair-h, .stick-crosshair-v {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .stick-crosshair-h {
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+        }
+
+        .stick-crosshair-v {
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+        }
+
+        .stick-dot {
+            width: 18px;
+            height: 18px;
+            background: var(--accent-primary);
+            border: 2px solid white;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+            transition: transform 0.05s ease-out;
+        }
+
+        .stick-coords {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* Directional Pad Visualizer */
+        .dpad-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 44px);
+            grid-template-rows: repeat(3, 44px);
+            gap: 6px;
+            justify-content: center;
+            margin: 0 auto;
+        }
+
+        .dpad-btn {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-muted);
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            user-select: none;
+            cursor: pointer;
+        }
+
+        .dpad-btn.active {
+            background: var(--accent-primary);
+            color: white;
+            border-color: #60a5fa;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+
+        /* Keybindings reference */
+        .key-legend {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .key-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-surface);
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .kbd {
+            background: #2d3348;
+            color: var(--text-main);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #475569;
+        }
+
+        /* Console Log */
+        .console-container {
+            background: #090a0f;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            height: 160px;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 8px;
+            color: #d1d5db;
+        }
+
+        .log-time {
+            color: #6b7280;
+            flex-shrink: 0;
+        }
+
+        .log-rec {
+            color: #f87171;
+            font-weight: 600;
+        }
+
+        .log-drive {
+            color: #60a5fa;
+        }
+
+        .log-ack {
+            color: #34d399;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>Teleop Carrinho ML</h1>
+            <span class="tag">DualShock 4 USB</span>
+        </div>
+
+        <div class="connection-bar">
+            <input type="text" id="esp-ip" value="192.168.1.100" placeholder="IP do ESP32 (ex: 192.168.1.50)">
+            <button class="btn-primary" id="btn-connect" onclick="toggleConnect()">
+                <span id="connect-text">Conectar</span>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Coluna Esquerda: Câmera & Stats -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Câmera ao Vivo</h2>
+                <div id="ws-status" class="status-pill">● Desconectado</div>
+            </div>
+
+            <div class="viewport-container">
+                <div class="hud-rec-badge" id="hud-rec">
+                    <span class="rec-dot"></span>
+                    <span id="hud-rec-text">REC SESSÃO #001</span>
+                </div>
+
+                <div class="hud-cmd-badge" id="hud-cmd">STOP</div>
+
+                <img id="stream-img" src="" alt="Stream" style="display: none;">
+
+                <div class="stream-placeholder" id="stream-placeholder">
+                    <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                    </svg>
+                    <span>Conecte ao IP do ESP32 para abrir o stream MJPEG</span>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Comando Atual</div>
+                    <div class="stat-value" id="stat-cmd" style="color: var(--accent-primary);">STOP</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Status SD</div>
+                    <div class="stat-value" id="stat-sd">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Sessão / Frames</div>
+                    <div class="stat-value" id="stat-frames">0 / 0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Espaço SD Livre</div>
+                    <div class="stat-value" id="stat-sd-free">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Coluna Direita: Controle DualShock & Ações -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Controle PS4 / DualShock 4</h2>
+                <div id="gamepad-status" class="status-pill">🎮 Aguardando controle</div>
+            </div>
+
+            <!-- Gamepad Monitor -->
+            <div class="gamepad-card">
+                <div class="gamepad-status-row">
+                    <span style="font-weight: 600; font-size: 0.9rem;" id="gamepad-name">Nenhum controle detectado</span>
+                </div>
+
+                <div class="stick-visualizer-container">
+                    <div class="stick-box">
+                        <div class="stick-crosshair-h"></div>
+                        <div class="stick-crosshair-v"></div>
+                        <div class="stick-dot" id="stick-dot"></div>
+                    </div>
+                    <div class="stick-coords">
+                        <div>Analógico E / D-Pad:</div>
+                        <div>Eixo X: <b id="axis-x">0.00</b></div>
+                        <div>Eixo Y: <b id="axis-y">0.00</b></div>
+                        <div style="margin-top: 4px; font-size: 0.72rem; color: #60a5fa;">Deadzone: ±0.25</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controle de Velocidade Máxima / Limitador -->
+            <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase;">Potência dos Motores</span>
+                    <span id="speed-limit-label" style="font-weight: 700; color: var(--accent-primary); font-size: 0.95rem;">40% (Ideal Treino)</span>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="range" id="speed-slider" min="20" max="100" value="40" step="5" style="flex: 1; accent-color: var(--accent-primary); cursor: pointer;" oninput="updateSpeedLimit(this.value)">
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.72rem; color: var(--text-muted);">
+                    <span style="cursor: pointer; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;" onclick="setSpeedPreset(30)">🐢 30% (Curvas)</span>
+                    <span style="cursor: pointer; padding: 2px 6px; background: rgba(59,130,246,0.15); color: #60a5fa; border-radius: 4px;" onclick="setSpeedPreset(40)">🎯 40% (Treino)</span>
+                    <span style="cursor: pointer; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;" onclick="setSpeedPreset(60)">⚡ 60%</span>
+                    <span style="cursor: pointer; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;" onclick="setSpeedPreset(100)">🚀 100%</span>
+                </div>
+            </div>
+
+            <!-- Botões Rápidos de Gravação -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <button class="btn-rec-start" id="btn-rec-start" onclick="sendCmd('rec_start')">
+                    <span class="rec-dot"></span> Iniciar Grav. SD (✕)
+                </button>
+                <button class="btn-rec-stop" id="btn-rec-stop" onclick="sendCmd('rec_stop')">
+                    ⏹ Parar Grav. SD (○)
+                </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <button class="btn-secondary" onclick="toggleFlashLed()">
+                    💡 Alternar Flash (□)
+                </button>
+                <button class="btn-secondary" onclick="sendCmd('get_status')">
+                    📊 Atualizar Status (△)
+                </button>
+            </div>
+
+            <!-- D-Pad visualizer / Fallback Buttons -->
+            <div class="dpad-grid">
+                <div></div>
+                <div class="dpad-btn" id="dpad-up">▲</div>
+                <div></div>
+                <div class="dpad-btn" id="dpad-left">◀</div>
+                <div class="dpad-btn" id="dpad-center" style="font-size: 0.7rem;">STOP</div>
+                <div class="dpad-btn" id="dpad-right">▶</div>
+                <div></div>
+                <div class="dpad-btn" id="dpad-down">▼</div>
+                <div></div>
+            </div>
+
+            <!-- Mapeamento / Guia -->
+            <div class="key-legend">
+                <div class="key-item"><span class="kbd">Analógico Esq</span> Direção</div>
+                <div class="key-item"><span class="kbd">✕ (Cruz)</span> Iniciar REC</div>
+                <div class="key-item"><span class="kbd">○ (Círculo)</span> Parar REC</div>
+                <div class="key-item"><span class="kbd">□ (Quadrado)</span> Toggle Flash</div>
+                <div class="key-item"><span class="kbd">W / A / S / D</span> Teclado</div>
+                <div class="key-item"><span class="kbd">Espaço</span> Parar (STOP)</div>
+            </div>
+
+            <!-- Console Log -->
+            <div class="panel-header" style="padding-top: 10px;">
+                <h2>Log de Eventos</h2>
+                <span style="font-size: 0.75rem; color: var(--text-muted); cursor: pointer;" onclick="clearLog()">Limpar</span>
+            </div>
+            <div class="console-container" id="console-log"></div>
+        </div>
+    </main>
+
+    <script>
+        // ----- Estado da Aplicação -----
+        let ws = null;
+        let isConnected = false;
+        let currentSteer = 0.0;
+        let currentThrottle = 0.0;
+        let lastSentSteer = null;
+        let lastSentThrottle = null;
+        let isRecording = false;
+        let flashLedState = false;
+        let gamepadIndex = null;
+        let lastButtonStates = {};
+        let speedLimit = 0.40;         // 40% de potência máxima por padrão para curvas suaves
+        let lastSendTime = 0;
+        const SEND_INTERVAL_MS = 35;   // ~28 Hz para resposta instantânea sem sobrecarregar o rádio
+        const DEADZONE = 0.15;
+        const SEND_THRESHOLD = 0.02;   // sensibilidade apurada
+
+        // Elementos DOM
+        const ipInput = document.getElementById('esp-ip');
+        const connectBtn = document.getElementById('btn-connect');
+        const connectText = document.getElementById('connect-text');
+        const wsStatus = document.getElementById('ws-status');
+        const streamImg = document.getElementById('stream-img');
+        const streamPlaceholder = document.getElementById('stream-placeholder');
+        const hudRec = document.getElementById('hud-rec');
+        const hudRecText = document.getElementById('hud-rec-text');
+        const hudCmd = document.getElementById('hud-cmd');
+        const statCmd = document.getElementById('stat-cmd');
+        const statSd = document.getElementById('stat-sd');
+        const statFrames = document.getElementById('stat-frames');
+        const statSdFree = document.getElementById('stat-sd-free');
+        const gamepadStatus = document.getElementById('gamepad-status');
+        const gamepadName = document.getElementById('gamepad-name');
+        const stickDot = document.getElementById('stick-dot');
+        const axisXText = document.getElementById('axis-x');
+        const axisYText = document.getElementById('axis-y');
+        const consoleLog = document.getElementById('console-log');
+
+        // D-Pad visual elements
+        const dpadUp = document.getElementById('dpad-up');
+        const dpadDown = document.getElementById('dpad-down');
+        const dpadLeft = document.getElementById('dpad-left');
+        const dpadRight = document.getElementById('dpad-right');
+        const dpadCenter = document.getElementById('dpad-center');
+
+        // ----- Logging -----
+        function log(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const row = document.createElement('div');
+            row.className = 'log-entry';
+            let typeClass = '';
+            if (type === 'rec') typeClass = 'log-rec';
+            else if (type === 'drive') typeClass = 'log-drive';
+            else if (type === 'ack') typeClass = 'log-ack';
+
+            row.innerHTML = `<span class="log-time">[${time}]</span> <span class="${typeClass}">${msg}</span>`;
+            consoleLog.appendChild(row);
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
+
+        function clearLog() {
+            consoleLog.innerHTML = '';
+        }
+
+        // ----- Conexão WebSocket & Stream -----
+        function toggleConnect() {
+            if (isConnected) {
+                disconnect();
+            } else {
+                connect();
+            }
+        }
+
+        function connect() {
+            const ip = ipInput.value.trim();
+            if (!ip) {
+                alert('Digite o IP do ESP32-CAM.');
+                return;
+            }
+
+            log(`Conectando a ws://${ip}/ws ...`);
+            connectText.textContent = 'Conectando...';
+
+            // Carregar stream MJPEG na porta 81
+            streamImg.src = `http://${ip}:81/stream`;
+            streamImg.style.display = 'block';
+            streamPlaceholder.style.display = 'none';
+
+            streamImg.onerror = () => {
+                log('Aviso: Não foi possível carregar stream MJPEG em :81/stream', 'rec');
+            };
+
+            // WebSocket na porta 80
+            try {
+                ws = new WebSocket(`ws://${ip}/ws`);
+            } catch (err) {
+                log('Erro ao criar WebSocket: ' + err, 'rec');
+                resetConnectState();
+                return;
+            }
+
+            ws.onopen = () => {
+                isConnected = true;
+                connectText.textContent = 'Desconectar';
+                connectBtn.style.background = '#4b5563';
+                wsStatus.textContent = '● Conectado';
+                wsStatus.className = 'status-pill connected';
+                log('WebSocket conectado com sucesso!', 'ack');
+
+                // Solicitar status inicial
+                sendCmd('get_status');
+            };
+
+            ws.onclose = () => {
+                log('WebSocket desconectado.');
+                resetConnectState();
+            };
+
+            ws.onerror = (e) => {
+                log('Erro de comunicação no WebSocket', 'rec');
+            };
+
+            ws.onmessage = (event) => {
+                handleServerMessage(event.data);
+            };
+        }
+
+        function disconnect() {
+            if (ws) ws.close();
+            resetConnectState();
+        }
+
+        function resetConnectState() {
+            isConnected = false;
+            connectText.textContent = 'Conectar';
+            connectBtn.style.background = 'var(--accent-primary)';
+            wsStatus.textContent = '● Desconectado';
+            wsStatus.className = 'status-pill';
+            streamImg.src = '';
+            streamImg.style.display = 'none';
+            streamPlaceholder.style.display = 'flex';
+        }
+
+        // ----- Envio de Comandos -----
+        function sendCmd(cmdName, extraData = {}) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log(`Não enviado (${cmdName}): WebSocket desconectado.`, 'rec');
+                return;
+            }
+            const payload = { cmd: cmdName, ...extraData };
+            ws.send(JSON.stringify(payload));
+        }
+
+        function updateSpeedLimit(val) {
+            speedLimit = parseFloat(val) / 100.0;
+            const label = document.getElementById('speed-limit-label');
+            let desc = '';
+            if (val <= 35) desc = '(Lento / Curvas)';
+            else if (val <= 50) desc = '(Ideal Treino)';
+            else if (val <= 75) desc = '(Rápido)';
+            else desc = '(Máximo)';
+            if (label) label.textContent = `${val}% ${desc}`;
+        }
+
+        function setSpeedPreset(val) {
+            const slider = document.getElementById('speed-slider');
+            if (slider) slider.value = val;
+            updateSpeedLimit(val);
+        }
+
+        function setDriveAxes(steer, throttle) {
+            // Aplicar deadzone
+            if (Math.abs(steer) < DEADZONE) steer = 0;
+            if (Math.abs(throttle) < DEADZONE) throttle = 0;
+
+            // Clampar entre -1 e 1
+            steer = Math.max(-1, Math.min(1, steer));
+            throttle = Math.max(-1, Math.min(1, throttle));
+
+            // Aplicar limitador de velocidade à potência dos motores
+            throttle = throttle * speedLimit;
+
+            currentSteer = steer;
+            currentThrottle = throttle;
+
+            // Atualiza UI
+            const dirLabel = getDirLabel(steer, throttle);
+            hudCmd.textContent = dirLabel;
+            statCmd.textContent = `S:${steer.toFixed(2)} T:${throttle.toFixed(2)}`;
+            updateDpadVisual(dirLabel);
+
+            // Cadência de envio:
+            // Envia a cada 35ms (~28Hz) se houver variação, ou no mesmo instante se for comando de parada (0, 0)
+            const now = performance.now();
+            const steerChanged = lastSentSteer === null || Math.abs(steer - lastSentSteer) > SEND_THRESHOLD;
+            const throttleChanged = lastSentThrottle === null || Math.abs(throttle - lastSentThrottle) > SEND_THRESHOLD;
+            const isStopCommand = (steer === 0 && throttle === 0 && (lastSentSteer !== 0 || lastSentThrottle !== 0));
+            const timeElapsed = (now - lastSendTime) >= SEND_INTERVAL_MS;
+
+            if ((isStopCommand || ((steerChanged || throttleChanged) && timeElapsed)) && ws && ws.readyState === WebSocket.OPEN) {
+                sendCmd('drive', { steer: parseFloat(steer.toFixed(2)), throttle: parseFloat(throttle.toFixed(2)) });
+                lastSentSteer = steer;
+                lastSentThrottle = throttle;
+                lastSendTime = now;
+            }
+        }
+
+        function getDirLabel(steer, throttle) {
+            if (Math.abs(steer) < 0.1 && Math.abs(throttle) < 0.1) return 'STOP';
+            const absS = Math.abs(steer);
+            const absT = Math.abs(throttle);
+            if (absT >= absS) {
+                return throttle > 0 ? 'FRENTE' : 'RÉ';
+            } else {
+                return steer < 0 ? 'ESQUERDA' : 'DIREITA';
+            }
+        }
+
+        function toggleFlashLed() {
+            flashLedState = !flashLedState;
+            sendCmd('led', { state: flashLedState });
+            log(`LED Flash: ${flashLedState ? 'LIGADO' : 'DESLIGADO'}`);
+        }
+
+        // ----- Processamento de Respostas do ESP32 -----
+        function handleServerMessage(rawJson) {
+            try {
+                const data = JSON.parse(rawJson);
+
+                if (data.type === 'status') {
+                    statSd.textContent = data.sd_ready ? 'PRONTO' : 'INDISPONÍVEL';
+                    statSd.style.color = data.sd_ready ? '#34d399' : '#f87171';
+
+                    if (data.sd_free_mb !== undefined) {
+                        statSdFree.textContent = `${data.sd_free_mb} MB`;
+                    }
+
+                    if (data.session !== undefined) {
+                        statFrames.textContent = `#${data.session} / ${data.rec_frames || 0} f`;
+                    }
+
+                    if (data.recording !== undefined) {
+                        setRecordingUI(data.recording, data.session, data.rec_frames);
+                    }
+
+                    log(`Status | steer=${data.steer} throttle=${data.throttle} | Heap: ${data.free_heap}B | RSSI: ${data.rssi}dBm`, 'ack');
+                } else if (data.type === 'rec_ack') {
+                    if (data.action === 'started') {
+                        setRecordingUI(true, data.session, 0);
+                        log(`🔴 Gravação INICIADA — Sessão #${data.session}`, 'rec');
+                    } else if (data.action === 'stopped') {
+                        setRecordingUI(false, data.session, data.frames);
+                        log(`⏹ Gravação ENCERRADA — Sessão #${data.session} (${data.frames} frames)`, 'ack');
+                    }
+                } else if (data.type === 'drive_ack') {
+                    // Confirmação silenciosa dos eixos
+                } else if (data.type === 'led_ack') {
+                    flashLedState = data.state;
+                    log(`LED Flash confirmado: ${data.state ? 'ON' : 'OFF'}`, 'ack');
+                } else if (data.type === 'error') {
+                    log(`Erro ESP32: ${data.msg}`, 'rec');
+                }
+            } catch (e) {
+                log('Mensagem bruta: ' + rawJson);
+            }
+        }
+
+        function setRecordingUI(active, session = 1, frames = 0) {
+            isRecording = active;
+            if (active) {
+                hudRec.classList.add('active');
+                hudRecText.textContent = `REC SESSÃO #${session}`;
+                gamepadStatus.className = 'status-pill recording';
+                statFrames.textContent = `#${session} / gravando...`;
+            } else {
+                hudRec.classList.remove('active');
+                gamepadStatus.className = gamepadIndex !== null ? 'status-pill connected' : 'status-pill';
+                statFrames.textContent = `#${session} / ${frames} f`;
+            }
+        }
+
+        function updateDpadVisual(dir) {
+            dpadUp.classList.toggle('active', dir === 'FRENTE');
+            dpadDown.classList.toggle('active', dir === 'RÉ');
+            dpadLeft.classList.toggle('active', dir === 'ESQUERDA');
+            dpadRight.classList.toggle('active', dir === 'DIREITA');
+            dpadCenter.classList.toggle('active', dir === 'STOP');
+        }
+
+        // ----- Gamepad API (DualShock 4 USB / Bluetooth) -----
+        window.addEventListener('gamepadconnected', (e) => {
+            gamepadIndex = e.gamepad.index;
+            gamepadStatus.textContent = '🎮 DualShock Conectado';
+            gamepadStatus.className = 'status-pill connected';
+            gamepadName.textContent = e.gamepad.id.split('(')[0] || 'Controle USB PS4';
+            log(`Controle conectado: ${e.gamepad.id}`, 'ack');
+        });
+
+        window.addEventListener('gamepaddisconnected', (e) => {
+            if (gamepadIndex === e.gamepad.index) {
+                gamepadIndex = null;
+                gamepadStatus.textContent = '🎮 Desconectado';
+                gamepadStatus.className = 'status-pill';
+                gamepadName.textContent = 'Nenhum controle detectado';
+                log('Controle desconectado.', 'rec');
+                setDriveAxes(0, 0);
+            }
+        });
+
+        // Polling loop do Gamepad via requestAnimationFrame
+        function pollGamepad() {
+            if (gamepadIndex !== null) {
+                const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+                const gp = gamepads[gamepadIndex];
+
+                if (gp) {
+                    // 1. Ler eixos analógicos do stick esquerdo (Axes 0 e 1)
+                    let x = gp.axes[0] || 0;    // steer
+                    let y = gp.axes[1] || 0;    // throttle (invertido: -Y = frente)
+
+                    // Suporte a D-Pad como botões (Standard Gamepad mapping)
+                    const dpadUpPressed = gp.buttons[12] && gp.buttons[12].pressed;
+                    const dpadDownPressed = gp.buttons[13] && gp.buttons[13].pressed;
+                    const dpadLeftPressed = gp.buttons[14] && gp.buttons[14].pressed;
+                    const dpadRightPressed = gp.buttons[15] && gp.buttons[15].pressed;
+
+                    if (dpadUpPressed) y = -1.0;
+                    else if (dpadDownPressed) y = 1.0;
+
+                    if (dpadLeftPressed) x = -1.0;
+                    else if (dpadRightPressed) x = 1.0;
+
+                    // Atualizar visualizador do stick
+                    axisXText.textContent = x.toFixed(2);
+                    axisYText.textContent = y.toFixed(2);
+                    const posX = Math.max(-40, Math.min(40, x * 40));
+                    const posY = Math.max(-40, Math.min(40, y * 40));
+                    stickDot.style.transform = `translate(calc(-50% + ${posX}px), calc(-50% + ${posY}px))`;
+
+                    // 2. Enviar steer + throttle como eixos contínuos
+                    // Eixo X do analógico = steer (esq/dir)
+                    // Eixo Y do analógico = throttle (invertido: -Y = frente = positivo)
+                    const steer = x;
+                    const throttle = -y;   // inverter: empurrar pra frente = throttle positivo
+                    setDriveAxes(steer, throttle);
+
+                    // 3. Leitura de Botões de Ação (Detecção de borda de subida)
+                    // Button 0: Cruz (X) -> Iniciar Gravação
+                    // Button 1: Círculo (O) -> Parar Gravação
+                    // Button 2: Quadrado -> Toggle Flash LED
+                    // Button 3: Triângulo -> Get Status
+                    checkButtonEdge(gp, 0, () => sendCmd('rec_start'));
+                    checkButtonEdge(gp, 1, () => sendCmd('rec_stop'));
+                    checkButtonEdge(gp, 2, () => toggleFlashLed());
+                    checkButtonEdge(gp, 3, () => sendCmd('get_status'));
+                }
+            }
+
+            requestAnimationFrame(pollGamepad);
+        }
+
+        function checkButtonEdge(gp, buttonIndex, callback) {
+            const isPressed = gp.buttons[buttonIndex] && gp.buttons[buttonIndex].pressed;
+            const wasPressed = lastButtonStates[buttonIndex] || false;
+
+            if (isPressed && !wasPressed) {
+                callback();
+            }
+            lastButtonStates[buttonIndex] = isPressed;
+        }
+
+        // Iniciar loop do controle
+        requestAnimationFrame(pollGamepad);
+
+        // ----- Fallback: Controles de Teclado (WASD / Setas) -----
+        const activeKeys = new Set();
+
+        window.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            const key = e.key.toUpperCase();
+
+            if (['W', 'ARROWUP', 'A', 'ARROWLEFT', 'S', 'ARROWDOWN', 'D', 'ARROWRIGHT', ' '].includes(key)) {
+                e.preventDefault();
+            }
+
+            activeKeys.add(key);
+            processKeyboardDrive();
+
+            // Ações rápidas no teclado
+            if (key === 'R') sendCmd('rec_start');
+            if (key === 'T') sendCmd('rec_stop');
+            if (key === 'L') toggleFlashLed();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            const key = e.key.toUpperCase();
+            activeKeys.delete(key);
+            processKeyboardDrive();
+        });
+
+        function processKeyboardDrive() {
+            // Se o controle gamepad estiver sendo usado no momento, ele tem prioridade
+            if (gamepadIndex !== null) {
+                const gp = navigator.getGamepads ? navigator.getGamepads()[gamepadIndex] : null;
+                if (gp && (Math.abs(gp.axes[0]) > DEADZONE || Math.abs(gp.axes[1]) > DEADZONE)) {
+                    return;
+                }
+            }
+
+            // Teclado envia valores discretos nos eixos
+            let steer = 0;
+            let throttle = 0;
+
+            if (activeKeys.has('W') || activeKeys.has('ARROWUP')) throttle = 1.0;
+            else if (activeKeys.has('S') || activeKeys.has('ARROWDOWN')) throttle = -1.0;
+
+            if (activeKeys.has('A') || activeKeys.has('ARROWLEFT')) steer = -1.0;
+            else if (activeKeys.has('D') || activeKeys.has('ARROWRIGHT')) steer = 1.0;
+
+            setDriveAxes(steer, throttle);
+        }
+    </script>
+</body>
+</html>

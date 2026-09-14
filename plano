@@ -1,0 +1,36 @@
+1
+Montagem do hardware e verificação básica
+ESP32-CAM + placa MB (para gravação/alimentação), driver de motor (L298N/DRV8833) ligado a um segundo ESP32 dedicado a controle de motores, chassi com 2 motores DC, bateria Li-ion 2S com regulador de tensão, cartão microSD formatado em FAT32. Antes de programar qualquer coisa, teste isoladamente: motores giram com comando manual? Câmera captura imagem? SD grava e lê arquivo?
+2
+Firmware do servidor Wi-Fi no ESP32-CAM
+Adapte o exemplo CameraWebServer (Arduino core do ESP32) para expor um endpoint de stream (ex: /stream) e, um endpoint /capture para frame único. Esse servidor vai permitir visualizar a câmera em tempo real no PC e, futuramente, enviar frames para inferência remota se você optar por rodar o modelo no PC durante testes iniciais.
+3
+Firmware de gravação sincronizada no SD card
+Em paralelo ao servidor, implemente a gravação local: a cada frame capturado, salve a imagem (JPEG) e, no mesmo arquivo de log (CSV), registre o comando de direção ativo naquele instante junto com um timestamp. Isso garante que os dados do SD fiquem perfeitamente sincronizados, sem depender da latência do Wi-Fi.
+4
+Interface de controle manual (PC → ESP32 motor)
+Crie um script Python simples (ou app) que envia comandos de direção (frente/esquerda/direita/parar) via Wi-Fi HTTP ou WebSocket para o ESP32 que controla os motores, enquanto você observa o stream de vídeo do ESP32-CAM. Esse é o 'volante' que você vai usar para dirigir manualmente durante a coleta de dados.
+5
+Coleta de dados: pistas reais
+Construa fisicamente a pista (fita preta sobre chão claro) com variedade de curvas, retas, cruzamentos se quiser. Dirija manualmente várias voltas, variando iluminação, velocidade e posição inicial. Inclua situações de 'quase saindo da pista e corrigindo', para o modelo aprender a se recuperar de erro. Transfira os dados do SD para o PC ao final de cada sessão.
+6
+Pré-processamento e augmentation do dataset
+No PC, com Python/OpenCV: redimensione as imagens (ex: 96x96), converta para escala de cinza ou binarize com threshold adaptativo, normalize os pixels. Aplique augmentation (variação de brilho/contraste, pequenas rotações, flip horizontal com o comando espelhado) para multiplicar o dataset real sem precisar de mais coleta física.
+7
+Treinamento da CNN no computador
+Use TensorFlow/Keras (ou Edge Impulse, que integra coleta, treino e exportação num só lugar) para treinar uma CNN pequena que recebe a imagem e prevê o comando de direção. Separe os dados em treino/validação, acompanhe métricas de acurácia (ou erro, se for regressão), e ajuste hiperparâmetros e augmentation conforme os resultados.
+8
+Conversão, deploy e testes no carrinho real
+Converta o modelo treinado para TensorFlow Lite Micro com quantização int8, valide se cabe na memória do ESP32-CAM, e embarque a inferência nele. O ESP32-CAM roda a CNN localmente e envia só o comando resultante (1-2 bytes) via serial/I2C para o segundo ESP32, que traduz em PWM para os motores. Teste na pista real e itere: ajustar dataset, retreinar, testar de novo.
+
+
+Ordem lógica das dependências, resumida:
+
+Hardware primeiro — sem isso funcionando, nada mais faz sentido testar.
+Servidor Wi-Fi — te dá visibilidade em tempo real, útil desde já para depurar posicionamento da câmera, foco, ângulo.
+SD card sincronizado — essa é a fonte de dado "oficial" para treino, roda em paralelo ao servidor.
+Interface de controle manual — o "volante" que você vai usar enquanto grava dados.
+Coleta de dados reais — a etapa mais demorada e a que mais afeta a qualidade final do modelo.
+Pré-processamento/augmentation — transforma o dataset bruto em algo que o modelo consegue aprender bem.
+Treinamento — aqui é onde você efetivamente cria a "inteligência".
+Deploy e testes — fecha o ciclo, e normalmente exige voltar ao passo 5 pelo menos uma vez (colete mais dados nas situações onde o carrinho errar).
