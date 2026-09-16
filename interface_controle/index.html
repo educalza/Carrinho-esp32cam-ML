@@ -862,14 +862,22 @@
             updateDpadVisual(dirLabel);
 
             // Cadência de envio:
-            // Envia a cada 35ms (~28Hz) se houver variação, ou no mesmo instante se for comando de parada (0, 0)
+            // Envia continuamente enquanto estiver em movimento (isDriving) para alimentar o failsafe de 500ms do ESP32
+            // Ou envia imediatamente se for comando de parada (0, 0)
             const now = performance.now();
             const steerChanged = lastSentSteer === null || Math.abs(steer - lastSentSteer) > SEND_THRESHOLD;
             const throttleChanged = lastSentThrottle === null || Math.abs(throttle - lastSentThrottle) > SEND_THRESHOLD;
             const isStopCommand = (steer === 0 && throttle === 0 && (lastSentSteer !== 0 || lastSentThrottle !== 0));
+            const isDriving = (steer !== 0 || throttle !== 0);
             const timeElapsed = (now - lastSendTime) >= SEND_INTERVAL_MS;
 
-            if ((isStopCommand || ((steerChanged || throttleChanged) && timeElapsed)) && ws && ws.readyState === WebSocket.OPEN) {
+            // Envia se:
+            // 1. Acabou de soltar o controle (isStopCommand) -> parada imediata
+            // 2. Está dirigindo e passou o intervalo (heartbeat contínuo para os motores não pararem por timeout)
+            // 3. Houve alteração relevante e passou o intervalo
+            const shouldSend = isStopCommand || (timeElapsed && (isDriving || steerChanged || throttleChanged));
+
+            if (shouldSend && ws && ws.readyState === WebSocket.OPEN) {
                 sendCmd('drive', { steer: parseFloat(steer.toFixed(2)), throttle: parseFloat(throttle.toFixed(2)) });
                 lastSentSteer = steer;
                 lastSentThrottle = throttle;
@@ -1026,6 +1034,8 @@
                     checkButtonEdge(gp, 2, () => toggleFlashLed());
                     checkButtonEdge(gp, 3, () => sendCmd('get_status'));
                 }
+            } else if (activeKeys.size > 0) {
+                processKeyboardDrive();
             }
 
             requestAnimationFrame(pollGamepad);

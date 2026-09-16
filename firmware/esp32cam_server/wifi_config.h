@@ -5,8 +5,8 @@
 #define WIFI_CONFIG_H
 
 // Credenciais da rede doméstica
-#define WIFI_SSID               "Edilson Ligga 2.4g"          // ← substitua pelo nome da sua rede
-#define WIFI_PASSWORD           "z1w1w2g1"          // ← substitua pela senha da sua rede
+#define WIFI_SSID               "Galaxy M23 5G 7ECA"          // ← substitua pelo nome da sua rede
+#define WIFI_PASSWORD           "gayiagoo"          // ← substitua pela senha da sua rede
 
 // Timeout de conexão (ms)
 #define WIFI_CONNECT_TIMEOUT_MS  10000               // 10 segundos
