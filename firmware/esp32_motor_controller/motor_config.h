@@ -51,14 +51,15 @@
 #define MOTOR_PWM_RES       8       // Resolução em bits (0-255)
 #define MOTOR_PWM_MAX       255     // Valor máximo de PWM (2^8 - 1)
 
-// Velocidade mínima para os motores girarem (compensa atrito estático)
-// Se throttle * 255 < MOTOR_MIN_PWM, aplica MOTOR_MIN_PWM
-// Ajuste conforme seus motores — motores baratos costumam precisar de ~60-80
-#define MOTOR_MIN_PWM       50
+// |throttle| <= deadband para; acima dela mapeia linearmente de MIN a MAX.
+// A faixa útil é normalizada após a deadband: 0.51 corresponde ao seu meio.
+// 90 é um ponto inicial de calibração, não garantia de torque/velocidade física.
+#define MOTOR_MIN_PWM       90
+#define MOTOR_THROTTLE_DEADBAND 0.02f
 
 // Timeout de segurança (failsafe)
-// Se nenhum comando chegar em FAILSAFE_TIMEOUT_MS, para os motores
-#define FAILSAFE_TIMEOUT_MS 500
+// Se nenhum comando VÁLIDO chegar nesse intervalo, para os motores.
+#define FAILSAFE_TIMEOUT_MS 300
 
 // Canais LEDC para PWM (ESP32 tem 16 canais: 0-15)
 #define LEDC_CHANNEL_MOTOR_A  0

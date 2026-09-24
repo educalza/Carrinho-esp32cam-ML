@@ -1,19 +1,12 @@
 // ============================================
-// GRAVAÇÃO NO SD CARD — Etapa 3 (v2: steer+throttle)
+// GRAVAÇÃO NO SD CARD — Etapa 3 (v3: rotulo sincronizado)
 // Dataset sincronizado (frame JPEG + eixos contínuos)
 // ============================================
 #ifndef SD_RECORDER_H
 #define SD_RECORDER_H
 
 #include <Arduino.h>
-
-// ----- Estado de direção contínuo -----
-// Representa os 2 eixos do analógico capturados no instante de cada frame.
-// Usados para rotular cada imagem no CSV de treino.
-struct DriveState {
-    float steer;     // -1.0 (esquerda máx) a +1.0 (direita máx)
-    float throttle;  // -1.0 (ré máx) a +1.0 (frente máx)
-};
+#include "drive_history.h"
 
 // ----- Inicialização do SD Card -----
 // Monta o sistema de arquivos SD_MMC em modo 1-bit.
@@ -28,7 +21,8 @@ bool initSDCard();
 // Retorna true se a sessão foi criada com sucesso.
 bool startRecording();
 
-// Finaliza a sessão: fecha o arquivo CSV e reseta contadores.
+// Finaliza a sessao: aguarda escrita pendente e fecha o arquivo CSV.
+// Os contadores finais permanecem disponiveis para o status.
 void stopRecording();
 
 // Retorna true se uma sessão de gravação está ativa.
@@ -37,7 +31,8 @@ bool isRecording();
 // ----- Gravação de frame + comando -----
 
 // Captura um frame da câmera, salva o JPEG no SD e registra uma linha
-// no log.csv com o timestamp, steer e throttle atuais.
+// no log.csv com o timestamp da captura e o ultimo comando recebido ate
+// esse instante. Frames sem comando ou com comando >300 ms sao descartados.
 // Só faz algo se isRecording() == true.
 // Retorna true se o frame foi salvo com sucesso.
 bool recordFrame();
@@ -55,6 +50,9 @@ DriveState getCurrentDrive();
 
 // Número do frame atual na sessão ativa.
 uint32_t getRecordedFrameCount();
+
+// Frames descartados por falta de rotulo sincronizado na sessao.
+uint32_t getRejectedFrameCount();
 
 // Número da sessão atual (ou a última criada).
 uint16_t getCurrentSessionNumber();

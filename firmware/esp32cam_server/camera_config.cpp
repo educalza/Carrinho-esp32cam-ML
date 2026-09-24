@@ -5,7 +5,7 @@
 #include "camera_config.h"
 
 bool initCamera() {
-    camera_config_t config;
+    camera_config_t config = {};
 
     // Pinos de controle
     config.pin_pwdn     = PWDN_GPIO_NUM;
@@ -34,19 +34,20 @@ bool initCamera() {
     config.ledc_timer   = LEDC_TIMER_0;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.grab_mode    = CAMERA_GRAB_LATEST;
+    config.frame_size   = DEFAULT_FRAME_SIZE;
+    config.jpeg_quality = DEFAULT_JPEG_QUALITY;
 
     // Ajuste baseado na presença de PSRAM
     if (psramFound()) {
-        config.frame_size  = DEFAULT_FRAME_SIZE;
-        config.jpeg_quality = DEFAULT_JPEG_QUALITY;
         config.fb_count    = 2;   // double buffering para stream suave
+        config.fb_location = CAMERA_FB_IN_PSRAM;
+        config.grab_mode   = CAMERA_GRAB_LATEST;
         Serial.println("[CAM] PSRAM encontrada — double buffering ativado");
     } else {
-        config.frame_size  = FRAMESIZE_SVGA;   // resolução reduzida sem PSRAM
-        config.jpeg_quality = 12;
         config.fb_count    = 1;
-        Serial.println("[CAM] PSRAM nao encontrada — resolucao reduzida");
+        config.fb_location = CAMERA_FB_IN_DRAM;
+        config.grab_mode   = CAMERA_GRAB_WHEN_EMPTY;
+        Serial.println("[CAM] Sem PSRAM — QVGA com um buffer na RAM interna");
     }
 
     // Inicializar driver da câmera
@@ -62,8 +63,6 @@ bool initCamera() {
     // Ajustes finos do sensor (opcional — descomente conforme necessário)
     sensor_t *s = esp_camera_sensor_get();
     if (s) {
-        s->set_framesize(s, DEFAULT_FRAME_SIZE);
-        s->set_quality(s, DEFAULT_JPEG_QUALITY);
         // s->set_vflip(s, 1);    // Espelhar verticalmente
         // s->set_hmirror(s, 1);  // Espelhar horizontalmente
         // s->set_brightness(s, 1);  // -2 a 2

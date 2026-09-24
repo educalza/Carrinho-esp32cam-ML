@@ -29,6 +29,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <math.h>
 #include "ws_handler.h"
 #include "camera_config.h"
 #include "sd_recorder.h"
@@ -87,6 +88,7 @@ static void handleGetStatus(httpd_req_t *req) {
     doc["recording"]    = isRecording();
     doc["session"]      = getCurrentSessionNumber();
     doc["rec_frames"]   = getRecordedFrameCount();
+    doc["rec_frames_rejected"] = getRejectedFrameCount();
 
     // Eixos de direção atuais
     DriveState ds = getCurrentDrive();
@@ -120,8 +122,15 @@ static void handleSetConfig(httpd_req_t *req, JsonDocument &cmdDoc) {
     // Alterar resolução
     if (cmdDoc["framesize"].is<int>()) {
         int fs = cmdDoc["framesize"];
+        if (isRecording() && fs != FRAMESIZE_QVGA) {
+            ws_send_text(req, "{\"type\":\"error\",\"msg\":\"Gravacao exige QVGA (320x240). Pare antes de mudar a resolucao.\"}");
+            return;
+        }
         if (fs >= 0 && fs <= 13) {
-            s->set_framesize(s, (framesize_t)fs);
+            if (s->set_framesize(s, (framesize_t)fs) != 0) {
+                ws_send_text(req, "{\"type\":\"error\",\"msg\":\"Sensor recusou a resolucao\"}");
+                return;
+            }
             respDoc["framesize"]      = fs;
             respDoc["framesize_name"] = getFrameSizeName((framesize_t)fs);
             changed = true;
@@ -199,7 +208,7 @@ static void handleRecStart(httpd_req_t *req) {
         serializeJson(respDoc, buffer, sizeof(buffer));
         ws_send_text(req, buffer);
     } else {
-        ws_send_text(req, "{\"type\":\"error\",\"msg\":\"Falha ao iniciar gravacao\"}");
+        ws_send_text(req, "{\"type\":\"error\",\"msg\":\"Falha ao iniciar gravacao. Verifique SD e resolucao QVGA (320x240).\"}");
     }
 }
 
@@ -212,15 +221,16 @@ static void handleRecStop(httpd_req_t *req) {
         return;
     }
 
-    uint32_t totalFrames = getRecordedFrameCount();
     uint16_t session     = getCurrentSessionNumber();
     stopRecording();
+    uint32_t totalFrames = getRecordedFrameCount();
 
     JsonDocument respDoc;
     respDoc["type"]    = "rec_ack";
     respDoc["action"]  = "stopped";
     respDoc["session"] = session;
     respDoc["frames"]  = totalFrames;
+    respDoc["frames_rejected"] = getRejectedFrameCount();
 
     char buffer[128];
     serializeJson(respDoc, buffer, sizeof(buffer));
@@ -241,8 +251,14 @@ static void handleDrive(httpd_req_t *req, JsonDocument &cmdDoc) {
         return;
     }
 
-    float steer    = constrain(cmdDoc["steer"].as<float>(), -1.0f, 1.0f);
-    float throttle = constrain(cmdDoc["throttle"].as<float>(), -1.0f, 1.0f);
+    float steer    = cmdDoc["steer"].as<float>();
+    float throttle = cmdDoc["throttle"].as<float>();
+    if (!isfinite(steer) || !isfinite(throttle)) {
+        ws_send_text(req, "{\"type\":\"error\",\"msg\":\"steer e throttle devem ser finitos\"}");
+        return;
+    }
+    steer = constrain(steer, -1.0f, 1.0f);
+    throttle = constrain(throttle, -1.0f, 1.0f);
 
     // 1. Atualizar estado local (para gravação no SD)
     setCurrentDrive(steer, throttle);

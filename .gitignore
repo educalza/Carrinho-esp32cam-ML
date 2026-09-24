@@ -1,0 +1,17 @@
+# Saidas locais de compilacao e verificacao.
+.build/
+tests/*.exe
+__pycache__/
+*.pyc
+
+# Dados de treino e artefatos gerados localmente. Os arquivos permanecem no PC.
+/imagens_treino*/
+/dataset_processado*/
+/modelo*/
+
+# Backups e relatorios gerados ficam em armazenamento externo.
+/*.rar
+/ml_pipeline/*.png
+
+# Credenciais locais. Versione somente o arquivo de exemplo.
+/firmware/esp32cam_server/wifi_config.h

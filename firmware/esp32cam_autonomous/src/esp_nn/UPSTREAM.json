@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/espressif/esp-nn",
+  "commit": "07df856b8108f5ce5712a7ebcd834c0d9207997d",
+  "license": "Apache-2.0",
+  "upstream_sha256": {
+    "include/esp_nn_defs.h": "390f9e4b87611d7c50ee0842b5519223258b378a70f36c668779fc150881202c",
+    "include/esp_nn_ansi_headers.h": "401da23890c24c56eeecf36a6a3aeec1cd45b4e967d652727383bfb23da6c361",
+    "src/common/common_functions.h": "a4b4e6f24a6c683b84d5fbb8b646e505a3a97dcb19dd1dda46441b86b2cbd3e4",
+    "src/convolution/esp_nn_conv_opt.c": "dfb16133089028a5a042bb0b8ca8a47c56a0edee35a68a3434222a05f932e5cb",
+    "src/convolution/esp_nn_conv_ansi.c": "24ee76bfeb8099be7ad31a202a86e1fbecf25dda5730c35e352f0634a7c2033c",
+    "LICENSE": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+  },
+  "local_changes": "C include delimiters changed to quoted local includes. esp_nn_conv_opt.c includes ../../performance_options.h and applies CAR_ML_FAST_CODE (optional per-function GCC O2) to esp_nn_conv_s8_opt and esp_nn_conv_s8_1x1; arithmetic unchanged. Generic ESP32 convolution only; no S3 assembly."
+}

@@ -593,10 +593,10 @@
                         <div class="stick-dot" id="stick-dot"></div>
                     </div>
                     <div class="stick-coords">
-                        <div>Analógico E / D-Pad:</div>
-                        <div>Eixo X: <b id="axis-x">0.00</b></div>
-                        <div>Eixo Y: <b id="axis-y">0.00</b></div>
-                        <div style="margin-top: 4px; font-size: 0.72rem; color: #60a5fa;">Deadzone: ±0.25</div>
+                        <div>Esquerdo: velocidade | Direito: direção</div>
+                        <div>Direção (direito X): <b id="axis-x">0.00</b></div>
+                        <div>Velocidade (esquerdo Y): <b id="axis-y">0.00</b></div>
+                        <div style="margin-top: 4px; font-size: 0.72rem; color: #60a5fa;">Deadzone: ±0.15</div>
                     </div>
                 </div>
             </div>
@@ -652,13 +652,15 @@
 
             <!-- Mapeamento / Guia -->
             <div class="key-legend">
-                <div class="key-item"><span class="kbd">Analógico Esq</span> Direção</div>
+                <div class="key-item"><span class="kbd">Analógico Esq ↑↓</span> Velocidade</div>
+                <div class="key-item"><span class="kbd">Analógico Dir ←→</span> Direção</div>
                 <div class="key-item"><span class="kbd">✕ (Cruz)</span> Iniciar REC</div>
                 <div class="key-item"><span class="kbd">○ (Círculo)</span> Parar REC</div>
                 <div class="key-item"><span class="kbd">□ (Quadrado)</span> Toggle Flash</div>
                 <div class="key-item"><span class="kbd">W / A / S / D</span> Teclado</div>
                 <div class="key-item"><span class="kbd">Espaço</span> Parar (STOP)</div>
             </div>
+            <p style="font-size: 0.8rem; color: var(--text-muted);">Após STOP ou sair desta janela, solte as teclas e centralize os analógicos antes de voltar a dirigir.</p>
 
             <!-- Console Log -->
             <div class="panel-header" style="padding-top: 10px;">
@@ -685,6 +687,10 @@
         let lastSendTime = 0;
         const SEND_INTERVAL_MS = 35;   // ~28 Hz para resposta instantânea sem sobrecarregar o rádio
         const DEADZONE = 0.15;
+        // Gamepad Standard Mapping (DualShock 4): esquerda Y = eixo 1;
+        // direita X = eixo 2. Os dois comandos ficam independentes.
+        const GAMEPAD_LEFT_Y_AXIS = 1;
+        const GAMEPAD_RIGHT_X_AXIS = 2;
         const SEND_THRESHOLD = 0.02;   // sensibilidade apurada
 
         // Elementos DOM
@@ -840,10 +846,27 @@
             updateSpeedLimit(val);
         }
 
+        function applySoftDeadzone(value, deadzone = DEADZONE) {
+            const abs = Math.abs(value);
+            if (abs < deadzone) return 0.0;
+            const sign = Math.sign(value);
+            // remapeia [deadzone, 1.0] -> [0.0, 1.0] preservando continuidade
+            return sign * (abs - deadzone) / (1.0 - deadzone);
+        }
+
         function setDriveAxes(steer, throttle) {
-            // Aplicar deadzone
-            if (Math.abs(steer) < DEADZONE) steer = 0;
-            if (Math.abs(throttle) < DEADZONE) throttle = 0;
+            // Aplicar deadzone suave com remapeamento linear contínuo
+            steer = applySoftDeadzone(steer);
+            throttle = applySoftDeadzone(throttle);
+
+            // A stop has priority over every source. Resume only after neutral.
+            if (controlsSuspended || document.hidden || activeKeys.has(' ')) driveInhibited = true;
+            if (driveInhibited) {
+                if (!controlsSuspended && !document.hidden && activeKeys.size === 0 &&
+                    steer === 0 && throttle === 0) driveInhibited = false;
+                steer = 0;
+                throttle = 0;
+            }
 
             // Clampar entre -1 e 1
             steer = Math.max(-1, Math.min(1, steer));
@@ -862,7 +885,7 @@
             updateDpadVisual(dirLabel);
 
             // Cadência de envio:
-            // Envia continuamente enquanto estiver em movimento (isDriving) para alimentar o failsafe de 500ms do ESP32
+            // Envia continuamente enquanto estiver em movimento para alimentar o failsafe de 300ms.
             // Ou envia imediatamente se for comando de parada (0, 0)
             const now = performance.now();
             const steerChanged = lastSentSteer === null || Math.abs(steer - lastSentSteer) > SEND_THRESHOLD;
@@ -989,14 +1012,20 @@
 
         // Polling loop do Gamepad via requestAnimationFrame
         function pollGamepad() {
+            if (controlsSuspended || document.hidden) {
+                setDriveAxes(0, 0);
+                requestAnimationFrame(pollGamepad);
+                return;
+            }
             if (gamepadIndex !== null) {
                 const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
                 const gp = gamepads[gamepadIndex];
 
                 if (gp) {
-                    // 1. Ler eixos analógicos do stick esquerdo (Axes 0 e 1)
-                    let x = gp.axes[0] || 0;    // steer
-                    let y = gp.axes[1] || 0;    // throttle (invertido: -Y = frente)
+                    // 1. Ler controles independentes:
+                    //    stick esquerdo Y = velocidade; stick direito X = direção.
+                    let steer = gp.axes[GAMEPAD_RIGHT_X_AXIS] || 0;
+                    let throttle = -(gp.axes[GAMEPAD_LEFT_Y_AXIS] || 0);
 
                     // Suporte a D-Pad como botões (Standard Gamepad mapping)
                     const dpadUpPressed = gp.buttons[12] && gp.buttons[12].pressed;
@@ -1004,25 +1033,29 @@
                     const dpadLeftPressed = gp.buttons[14] && gp.buttons[14].pressed;
                     const dpadRightPressed = gp.buttons[15] && gp.buttons[15].pressed;
 
-                    if (dpadUpPressed) y = -1.0;
-                    else if (dpadDownPressed) y = 1.0;
+                    if (dpadUpPressed) throttle = 1.0;
+                    else if (dpadDownPressed) throttle = -1.0;
 
-                    if (dpadLeftPressed) x = -1.0;
-                    else if (dpadRightPressed) x = 1.0;
+                    if (dpadLeftPressed) steer = -1.0;
+                    else if (dpadRightPressed) steer = 1.0;
+
+                    const gamepadDriving = Math.abs(steer) > DEADZONE ||
+                                           Math.abs(throttle) > DEADZONE ||
+                                           dpadUpPressed || dpadDownPressed ||
+                                           dpadLeftPressed || dpadRightPressed;
 
                     // Atualizar visualizador do stick
-                    axisXText.textContent = x.toFixed(2);
-                    axisYText.textContent = y.toFixed(2);
-                    const posX = Math.max(-40, Math.min(40, x * 40));
-                    const posY = Math.max(-40, Math.min(40, y * 40));
+                    axisXText.textContent = steer.toFixed(2);
+                    axisYText.textContent = throttle.toFixed(2);
+                    const posX = Math.max(-40, Math.min(40, steer * 40));
+                    const posY = Math.max(-40, Math.min(40, -throttle * 40));
                     stickDot.style.transform = `translate(calc(-50% + ${posX}px), calc(-50% + ${posY}px))`;
 
-                    // 2. Enviar steer + throttle como eixos contínuos
-                    // Eixo X do analógico = steer (esq/dir)
-                    // Eixo Y do analógico = throttle (invertido: -Y = frente = positivo)
-                    const steer = x;
-                    const throttle = -y;   // inverter: empurrar pra frente = throttle positivo
-                    setDriveAxes(steer, throttle);
+                    // 2. Enviar direção e velocidade separadamente. Se os sticks
+                    // estiverem centrados, o teclado continua disponível.
+                    if (gamepadDriving) setDriveAxes(steer, throttle);
+                    else if (activeKeys.size > 0) processKeyboardDrive();
+                    else setDriveAxes(0, 0);
 
                     // 3. Leitura de Botões de Ação (Detecção de borda de subida)
                     // Button 0: Cruz (X) -> Iniciar Gravação
@@ -1036,6 +1069,8 @@
                 }
             } else if (activeKeys.size > 0) {
                 processKeyboardDrive();
+            } else {
+                setDriveAxes(0, 0);
             }
 
             requestAnimationFrame(pollGamepad);
@@ -1056,10 +1091,36 @@
 
         // ----- Fallback: Controles de Teclado (WASD / Setas) -----
         const activeKeys = new Set();
+        let driveInhibited = false;
+        let controlsSuspended = false;
+
+        function suspendControls() {
+            controlsSuspended = true;
+            driveInhibited = true;
+            activeKeys.clear();
+            lastSentSteer = lastSentThrottle = null;
+            setDriveAxes(0, 0);
+        }
+        window.addEventListener('blur', suspendControls);
+        window.addEventListener('focus', () => { controlsSuspended = false; });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) suspendControls();
+            else controlsSuspended = !document.hasFocus();
+        });
 
         window.addEventListener('keydown', (e) => {
-            if (e.target.tagName === 'INPUT') return;
             const key = e.key.toUpperCase();
+            if (key === ' ') {
+                e.preventDefault();
+                activeKeys.add(key);
+                driveInhibited = true;
+                lastSentSteer = lastSentThrottle = null;
+                setDriveAxes(0, 0);
+                return;
+            }
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+            // Heartbeats come from polling; a held key must not restart after focus loss.
+            if (e.repeat) return;
 
             if (['W', 'ARROWUP', 'A', 'ARROWLEFT', 'S', 'ARROWDOWN', 'D', 'ARROWRIGHT', ' '].includes(key)) {
                 e.preventDefault();
@@ -1075,17 +1136,19 @@
         });
 
         window.addEventListener('keyup', (e) => {
-            if (e.target.tagName === 'INPUT') return;
             const key = e.key.toUpperCase();
             activeKeys.delete(key);
             processKeyboardDrive();
         });
 
         function processKeyboardDrive() {
+            if (activeKeys.has(' ')) { setDriveAxes(0, 0); return; }
             // Se o controle gamepad estiver sendo usado no momento, ele tem prioridade
             if (gamepadIndex !== null) {
                 const gp = navigator.getGamepads ? navigator.getGamepads()[gamepadIndex] : null;
-                if (gp && (Math.abs(gp.axes[0]) > DEADZONE || Math.abs(gp.axes[1]) > DEADZONE)) {
+                if (gp && (Math.abs(gp.axes[GAMEPAD_RIGHT_X_AXIS] || 0) > DEADZONE ||
+                           Math.abs(gp.axes[GAMEPAD_LEFT_Y_AXIS] || 0) > DEADZONE ||
+                           [12, 13, 14, 15].some(i => gp.buttons[i] && gp.buttons[i].pressed))) {
                     return;
                 }
             }

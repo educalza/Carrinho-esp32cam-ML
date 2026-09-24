@@ -1,5 +1,5 @@
 // ============================================
-// IMPLEMENTAÇÃO — Gravação no SD Card (Etapa 3 v2)
+// IMPLEMENTAÇÃO — Gravação no SD Card (Etapa 3 v3)
 // ============================================
 //
 // Usa SD_MMC em modo 1-bit para evitar conflito com LED Flash (GPIO 4).
@@ -12,10 +12,9 @@
 //   /sdcard/session_002/
 //       ...
 //
-// Formato do log.csv (v2 — eixos contínuos):
-//   timestamp_ms,frame,steer,throttle
-//   12345,frame_00001.jpg,0.00,0.80
-//   12410,frame_00002.jpg,-0.45,0.75
+// Formato do log.csv (v3 — comando alinhado ao inicio da captura):
+//   timestamp_ms,frame,steer,throttle,command_timestamp_ms,command_age_ms,label_valid
+//   12345,frame_00001.jpg,0.00,0.80,12330,15,1
 //
 // ============================================
 
@@ -23,15 +22,42 @@
 #include "FS.h"
 #include "SD_MMC.h"
 #include "esp_camera.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include <atomic>
+#include <math.h>
 #include "sd_recorder.h"
 
 // ----- Estado interno -----
 static bool       sdReady       = false;
-static bool       recording     = false;
-static DriveState currentDrive  = {0.0f, 0.0f};
-static uint32_t   frameCount    = 0;
-static uint16_t   sessionNumber = 0;
+static std::atomic<bool> recording{false};
+static std::atomic<uint32_t> frameCount{0};
+static std::atomic<uint32_t> rejectedFrameCount{0};
+static std::atomic<uint16_t> sessionNumber{0};
 static File       csvFile;
+static SemaphoreHandle_t recordingMutex = nullptr;
+static portMUX_TYPE driveMux = portMUX_INITIALIZER_UNLOCKED;
+static DriveHistory driveHistory;
+static uint64_t recordingStartUs = 0;  // protegido por recordingMutex
+
+// Mutex de tarefa: o SD pode bloquear, mas nunca dentro de critical section.
+// Uma chamada rec_stop aguarda a escrita em andamento antes de fechar o CSV.
+class RecordingLock {
+public:
+    RecordingLock() { xSemaphoreTake(recordingMutex, portMAX_DELAY); }
+    ~RecordingLock() { xSemaphoreGive(recordingMutex); }
+    RecordingLock(const RecordingLock &) = delete;
+    RecordingLock &operator=(const RecordingLock &) = delete;
+};
+
+static void closeRecordingLocked() {
+    recording.store(false);
+    if (csvFile) {
+        csvFile.flush();
+        csvFile.close();
+    }
+}
 
 // Caminho da sessão ativa (ex: "/session_042")
 static char sessionPath[32];
@@ -41,6 +67,12 @@ static char sessionPath[32];
 // =============================================
 
 bool initSDCard() {
+    // setup() chama antes de iniciar as tarefas HTTP/WS.
+    if (!recordingMutex) recordingMutex = xSemaphoreCreateMutex();
+    if (!recordingMutex) {
+        Serial.println("[SD] ERRO: memoria insuficiente para mutex de gravacao");
+        return false;
+    }
     Serial.println("[SD] Inicializando SD_MMC (modo 1-bit)...");
 
     // Modo 1-bit: usa apenas GPIO 2 (DATA0), GPIO 14 (CLK), GPIO 15 (CMD)
@@ -102,7 +134,7 @@ bool initSDCard() {
         root.close();
     }
 
-    Serial.printf("[SD] Ultima sessao encontrada: %u\n", sessionNumber);
+    Serial.printf("[SD] Ultima sessao encontrada: %u\n", sessionNumber.load());
 
     sdReady = true;
     return true;
@@ -113,26 +145,33 @@ bool initSDCard() {
 // =============================================
 
 bool startRecording() {
+    sensor_t* sensor = esp_camera_sensor_get();
+    if (!sensor || sensor->status.framesize != FRAMESIZE_QVGA) {
+        Serial.println("[SD] Gravacao exige camera em QVGA (320x240).");
+        return false;
+    }
     if (!sdReady) {
         Serial.println("[SD] ERRO: cartao nao inicializado!");
         return false;
     }
 
+    RecordingLock lock;
+
     if (recording) {
         Serial.println("[SD] AVISO: ja esta gravando! Parando sessao anterior...");
-        stopRecording();
+        closeRecordingLocked();
     }
 
     // Incrementar número de sessão
     sessionNumber++;
     frameCount = 0;
+    rejectedFrameCount = 0;
 
     // Criar pasta da sessão
-    snprintf(sessionPath, sizeof(sessionPath), "/session_%03u", sessionNumber);
+    snprintf(sessionPath, sizeof(sessionPath), "/session_%03u", sessionNumber.load());
 
     if (!SD_MMC.mkdir(sessionPath)) {
         Serial.printf("[SD] ERRO: falha ao criar pasta %s\n", sessionPath);
-        sessionNumber--;
         return false;
     }
 
@@ -143,18 +182,21 @@ bool startRecording() {
     csvFile = SD_MMC.open(csvPath, FILE_WRITE);
     if (!csvFile) {
         Serial.printf("[SD] ERRO: falha ao criar %s\n", csvPath);
-        sessionNumber--;
         return false;
     }
 
-    // Escrever cabeçalho do CSV (v2: eixos contínuos)
-    csvFile.println("timestamp_ms,frame,steer,throttle");
+    // As quatro primeiras colunas continuam compativeis com datasets v2.
+    if (csvFile.println("timestamp_ms,frame,steer,throttle,command_timestamp_ms,command_age_ms,label_valid") == 0) {
+        closeRecordingLocked();
+        return false;
+    }
     csvFile.flush();
 
+    recordingStartUs = static_cast<uint64_t>(esp_timer_get_time());
     recording = true;
 
     Serial.println("========================================");
-    Serial.printf("[SD] GRAVACAO INICIADA — Sessao %03u\n", sessionNumber);
+    Serial.printf("[SD] GRAVACAO INICIADA — Sessao %03u\n", sessionNumber.load());
     Serial.printf("[SD] Pasta: %s\n", sessionPath);
     Serial.printf("[SD] Espaco livre: %llu MB\n",
                   (SD_MMC.totalBytes() - SD_MMC.usedBytes()) / (1024 * 1024));
@@ -164,22 +206,19 @@ bool startRecording() {
 }
 
 void stopRecording() {
+    if (!recordingMutex) return;
+    RecordingLock lock;
     if (!recording) {
         Serial.println("[SD] AVISO: nenhuma gravacao ativa para parar");
         return;
     }
 
-    recording = false;
-
-    // Fechar CSV
-    if (csvFile) {
-        csvFile.flush();
-        csvFile.close();
-    }
+    closeRecordingLocked();
 
     Serial.println("========================================");
-    Serial.printf("[SD] GRAVACAO ENCERRADA — Sessao %03u\n", sessionNumber);
-    Serial.printf("[SD] Total de frames salvos: %u\n", frameCount);
+    Serial.printf("[SD] GRAVACAO ENCERRADA — Sessao %03u\n", sessionNumber.load());
+    Serial.printf("[SD] Frames salvos: %u | Sem rotulo sincronizado: %u\n",
+                  frameCount.load(), rejectedFrameCount.load());
     Serial.printf("[SD] Espaco livre: %llu MB\n",
                   (SD_MMC.totalBytes() - SD_MMC.usedBytes()) / (1024 * 1024));
     Serial.println("========================================");
@@ -195,20 +234,39 @@ bool isRecording() {
 
 bool recordFrame() {
     if (!recording || !sdReady) return false;
+    const uint16_t captureSession = sessionNumber.load();
 
-    // Capturar frame da câmera
+    // A captura pode aguardar a camera. Nao impedir rec_stop nesse intervalo.
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
         Serial.println("[SD] ERRO: captura do frame falhou!");
         return false;
     }
 
-    frameCount++;
-    unsigned long timestamp = millis();
+    const uint64_t captureUs = static_cast<uint64_t>(fb->timestamp.tv_sec) * 1000000ULL
+                             + static_cast<uint64_t>(fb->timestamp.tv_usec);
+    DriveSample label = {};
+    portENTER_CRITICAL(&driveMux);
+    const bool hasLabel = driveHistory.sampleAt(captureUs, label);
+    portEXIT_CRITICAL(&driveMux);
+
+    RecordingLock lock;
+    // Nao deixar um frame pendente entrar em outra sessao ou depois de stop.
+    if (!recording || captureSession != sessionNumber.load()) {
+        esp_camera_fb_return(fb);
+        return false;
+    }
+    if (!hasLabel || captureUs < recordingStartUs || fb->format != PIXFORMAT_JPEG ||
+        fb->width != 320 || fb->height != 240) {
+        ++rejectedFrameCount;
+        esp_camera_fb_return(fb);
+        return false;
+    }
+    const uint32_t nextFrame = frameCount.load() + 1;
 
     // Montar nome do arquivo de imagem
     char frameName[24];
-    snprintf(frameName, sizeof(frameName), "frame_%05u.jpg", frameCount);
+    snprintf(frameName, sizeof(frameName), "frame_%05u.jpg", nextFrame);
 
     char framePath[64];
     snprintf(framePath, sizeof(framePath), "%s/%s", sessionPath, frameName);
@@ -218,7 +276,6 @@ bool recordFrame() {
     if (!imgFile) {
         Serial.printf("[SD] ERRO: falha ao criar %s\n", framePath);
         esp_camera_fb_return(fb);
-        frameCount--;
         return false;
     }
 
@@ -227,29 +284,37 @@ bool recordFrame() {
 
     if (bytesWritten != fb->len) {
         Serial.printf("[SD] ERRO: escrita incompleta (%u de %u bytes)\n",
-                      bytesWritten, fb->len);
+                      static_cast<unsigned>(bytesWritten), static_cast<unsigned>(fb->len));
+        SD_MMC.remove(framePath);
         esp_camera_fb_return(fb);
         return false;
     }
 
-    // Registrar linha no CSV (v2: steer + throttle contínuos)
-    DriveState driveSnapshot = currentDrive;   // snapshot atômico
-    if (csvFile) {
-        csvFile.printf("%lu,%s,%.2f,%.2f\n",
-                       timestamp, frameName,
-                       driveSnapshot.steer, driveSnapshot.throttle);
-
-        // Flush a cada 10 frames para equilibrar performance vs. segurança
-        if (frameCount % 10 == 0) {
-            csvFile.flush();
-        }
+    // O rotulo foi escolhido ANTES da escrita, pelo timestamp do frame.
+    char row[160];
+    const int rowLength = snprintf(row, sizeof(row), "%llu,%s,%.2f,%.2f,%llu,%llu,1\n",
+        static_cast<unsigned long long>(captureUs / 1000), frameName,
+        label.drive.steer, label.drive.throttle,
+        static_cast<unsigned long long>(label.timestampUs / 1000),
+        static_cast<unsigned long long>((captureUs - label.timestampUs) / 1000));
+    if (rowLength <= 0 || static_cast<size_t>(rowLength) >= sizeof(row) || !csvFile ||
+        csvFile.write(reinterpret_cast<const uint8_t *>(row), rowLength) != static_cast<size_t>(rowLength)) {
+        Serial.println("[SD] ERRO: escrita do CSV falhou; encerrando sessao");
+        SD_MMC.remove(framePath);
+        closeRecordingLocked();
+        esp_camera_fb_return(fb);
+        return false;
     }
+    frameCount.store(nextFrame);
+
+    // Flush a cada 10 frames para equilibrar performance vs. seguranca.
+    if (nextFrame % 10 == 0) csvFile.flush();
 
     // Log periódico a cada 50 frames
-    if (frameCount % 50 == 0) {
+    if (nextFrame % 50 == 0) {
         Serial.printf("[SD] Sessao %03u: %u frames | steer=%.2f throttle=%.2f | %u bytes\n",
-                      sessionNumber, frameCount,
-                      driveSnapshot.steer, driveSnapshot.throttle, fb->len);
+                      sessionNumber.load(), nextFrame,
+                      label.drive.steer, label.drive.throttle, static_cast<unsigned>(fb->len));
     }
 
     esp_camera_fb_return(fb);
@@ -261,16 +326,28 @@ bool recordFrame() {
 // =============================================
 
 void setCurrentDrive(float steer, float throttle) {
-    currentDrive.steer    = constrain(steer, -1.0f, 1.0f);
-    currentDrive.throttle = constrain(throttle, -1.0f, 1.0f);
+    if (!isfinite(steer) || !isfinite(throttle)) return;
+    const DriveState drive = {
+        constrain(steer, -1.0f, 1.0f), constrain(throttle, -1.0f, 1.0f)
+    };
+    portENTER_CRITICAL(&driveMux);
+    driveHistory.push(drive, static_cast<uint64_t>(esp_timer_get_time()));
+    portEXIT_CRITICAL(&driveMux);
 }
 
 DriveState getCurrentDrive() {
-    return currentDrive;
+    portENTER_CRITICAL(&driveMux);
+    const DriveState result = driveHistory.latest();
+    portEXIT_CRITICAL(&driveMux);
+    return result;
 }
 
 uint32_t getRecordedFrameCount() {
     return frameCount;
+}
+
+uint32_t getRejectedFrameCount() {
+    return rejectedFrameCount;
 }
 
 uint16_t getCurrentSessionNumber() {
