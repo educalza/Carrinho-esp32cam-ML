@@ -13,6 +13,7 @@ Projeto de um carrinho que aprende a esterçar a partir de imagens da pista. A E
 - [Firmwares](#firmwares)
 - [Estrutura do repositório](#estrutura-do-repositório)
 - [Dados e arquivos grandes](#dados-e-arquivos-grandes)
+- [Licença](#licença)
 
 ## Visão geral
 
@@ -279,3 +280,7 @@ Os dados e o modelo treinado estão disponíveis no Hugging Face:
 O modelo publicado corresponde ao `modelo_v3`. Seu `modelo_linha.h` é o mesmo instalado em `firmware/esp32cam_autonomous`. Use essas páginas para baixar os artefatos sem adicionar arquivos pesados ao repositório Git. Ao reproduzir um treinamento, registre a versão do dataset e a divisão de sessões utilizada.
 
 As credenciais Wi-Fi também não são versionadas. Em uma cópia nova do projeto, duplique `firmware/esp32cam_server/wifi_config.example.h` como `wifi_config.h` e preencha os valores localmente.
+
+## Licença
+
+Este projeto é distribuído sob a [Apache License 2.0](LICENSE). Componentes de terceiros mantêm seus próprios arquivos e termos de licença.
