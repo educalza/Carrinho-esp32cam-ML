@@ -271,6 +271,11 @@ Os detalhes do pipeline estão em [ml_pipeline/README.md](ml_pipeline/README.md)
 
 Datasets, arrays processados, modelos de treinamento, gráficos e backups compactados são ignorados pelo Git. O repositório mantém o código e o header do modelo instalado no firmware.
 
-Para compartilhar os dados, use Google Drive para uma transferência simples ou Hugging Face Datasets/Zenodo quando precisar de versão, descrição e referência pública. Registre no README o link, a versão do dataset, o hash do arquivo e a divisão de sessões utilizada no treinamento.
+Os dados e o modelo treinado estão disponíveis no Hugging Face:
+
+- **Dataset:** [ESP32-CAM Autonomous Line-Following Car Dataset](https://huggingface.co/datasets/pdDuduzin/ESP32-CAM_Autonomous_Line-Following_Car_Dataset)
+- **Modelo:** [ESP32-CAM Autonomous Line-Following Car Model](https://huggingface.co/pdDuduzin/ESP32-CAM_Autonomous_Line-Following_Car_Model)
+
+O modelo publicado corresponde ao `modelo_v3`. Seu `modelo_linha.h` é o mesmo instalado em `firmware/esp32cam_autonomous`. Use essas páginas para baixar os artefatos sem adicionar arquivos pesados ao repositório Git. Ao reproduzir um treinamento, registre a versão do dataset e a divisão de sessões utilizada.
 
 As credenciais Wi-Fi também não são versionadas. Em uma cópia nova do projeto, duplique `firmware/esp32cam_server/wifi_config.example.h` como `wifi_config.h` e preencha os valores localmente.
