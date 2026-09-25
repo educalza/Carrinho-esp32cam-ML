@@ -6,6 +6,10 @@ __pycache__/
 
 # Dados de treino e artefatos gerados localmente. Os arquivos permanecem no PC.
 /imagens_treino*/
+/dataset_imagens_linha*/
+/imagens_treino2*/
+/imagens_treino3_deadzone*/
+/imagens_treino4*/
 /dataset_processado*/
 /modelo*/
 
