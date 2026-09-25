@@ -7,6 +7,7 @@ Projeto de um carrinho que aprende a esterçar a partir de imagens da pista. A E
 - [Visão geral](#visão-geral)
 - [Hardware](#hardware)
 - [Funcionamento etapa a etapa](#funcionamento-etapa-a-etapa)
+- [Redes e comunicação](#redes-e-comunicação)
 - [Redes neurais](#redes-neurais)
 - [Visão computacional](#visão-computacional)
 - [Firmwares](#firmwares)
@@ -125,6 +126,64 @@ Grave `firmware/esp32cam_autonomous` somente na ESP32-CAM. A ESP32 DevKit não p
 A ESP32-CAM captura o frame, reproduz o pré-processamento do treino, executa a CNN e envia o comando atual à ESP32 DevKit. O firmware vigente usa diretamente a direção prevista pelo modelo; não executa busca, ré ou recuperação heurística da linha.
 
 Antes de aumentar a velocidade, valide retas, curvas para os dois lados e diferentes iluminações com as rodas suspensas e depois em baixa velocidade.
+
+## Redes e comunicação
+
+O modo de coleta manual usa a rede apenas entre a interface de controle e a ESP32-CAM. O modo autônomo executa o modelo localmente e envia comandos diretamente à ESP32 DevKit por UART, portanto não depende de Wi-Fi, Internet, WebSocket ou servidor externo para dirigir.
+
+### Fluxo dos comandos
+
+```mermaid
+flowchart LR
+    A[Navegador] -->|WebSocket JSON<br/>Wi-Fi| B[ESP32-CAM]
+    B -->|UART2<br/>S...T...| C[ESP32 DevKit]
+    C --> D[Servo e motores]
+    B -->|HTTP MJPEG| A
+```
+
+| Tecnologia | Onde é usada | Função principal |
+|---|---|---|
+| Wi-Fi | Interface ↔ ESP32-CAM | Conecta a placa ao roteador ou hotspot no modo estação |
+| HTTP/TCP, porta 80 | `GET /capture` | Entrega uma imagem JPEG única |
+| HTTP/TCP, porta 81 | `GET /stream` | Mantém o stream MJPEG separado do servidor de controle |
+| WebSocket/TCP, porta 80 | `/ws` | Troca comandos e estados em tempo real usando JSON |
+| UART2, 115200 bit/s | ESP32-CAM ↔ ESP32 DevKit | Transporta direção e aceleração até o controlador dos atuadores |
+| UDP | Não utilizado | O projeto atual não envia comandos, vídeo nem telemetria por UDP |
+
+### WebSocket e protocolo de controle
+
+A interface abre `ws://<IP-DA-ESP32-CAM>/ws`. O WebSocket mantém uma conexão bidirecional, permitindo controlar o carrinho e consultar o estado sem criar uma nova requisição para cada comando. Entre as mensagens aceitas estão:
+
+```json
+{"cmd":"drive","steer":-0.35,"throttle":0.40}
+{"cmd":"get_status"}
+{"cmd":"rec_start"}
+{"cmd":"rec_stop"}
+{"cmd":"led","state":true}
+{"cmd":"set_config","framesize":8,"quality":10}
+```
+
+`steer` e `throttle` são limitados ao intervalo de `-1` a `+1`. Enquanto há movimento, a interface envia `drive` aproximadamente a cada 35 ms, cerca de 28 vezes por segundo. Essa repetição funciona como um heartbeat: se a ESP32 DevKit ficar 300 ms sem receber um comando UART válido, o failsafe desliga os motores.
+
+### Vídeo e prioridade do controle
+
+O stream é MJPEG sobre HTTP, uma sequência contínua de imagens JPEG. Ele roda na porta 81 para que a conexão longa de vídeo não ocupe o servidor da porta 80, usado pelo WebSocket e pela captura individual. O firmware também cede tempo entre frames para que vídeo e controle compartilhem CPU e rádio.
+
+O vídeo consome muito mais banda que as mensagens JSON. Se houver atraso no controle durante a coleta, reduza a qualidade ou resolução do stream, aproxime o ponto de acesso e evite vários clientes conectados simultaneamente. A gravação do dataset exige QVGA, 320 × 240.
+
+### Wi-Fi, endereço e reconexão
+
+A ESP32-CAM usa o modo estação (`WIFI_STA`) e recebe seu endereço IP da rede. SSID, senha, hostname e timeout ficam em `firmware/esp32cam_server/wifi_config.h`, criado a partir de `wifi_config.example.h`. O IP aparece no monitor serial após a conexão e deve ser informado na interface. Como ele normalmente é atribuído por DHCP, pode mudar após uma reinicialização; uma reserva de IP no roteador evita essa mudança.
+
+O firmware verifica a conexão periodicamente e tenta reconectar quando o Wi-Fi cai. Durante a condução manual, uma queda interrompe os comandos e o failsafe da ESP32 DevKit para os motores.
+
+### Por que não há UDP
+
+UDP poderia reduzir parte do overhead e seria uma opção para telemetria tolerante a perdas. Porém, ele não garante entrega, ordem nem detecção de desconexão. Para este projeto, WebSocket oferece uma conexão persistente, mensagens bidirecionais e integração direta com o navegador. A troca por UDP só faria sentido após medir a rede e demonstrar que WebSocket é o gargalo; ela também exigiria sequência de pacotes, heartbeat e descarte de comandos atrasados.
+
+### Segurança da rede
+
+HTTP e `ws://` não usam criptografia, e o firmware não autentica clientes. Use a coleta em uma rede local confiável e não exponha as portas da ESP32-CAM à Internet. O arquivo real de credenciais permanece fora do Git.
 
 ## Redes neurais
 
