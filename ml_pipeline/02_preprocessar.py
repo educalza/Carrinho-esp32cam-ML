@@ -76,24 +76,11 @@ def index_samples(raw_dir, require_aligned=False):
                         skipped += 1
                         continue
                     method = row.get("label_method", "").strip()
-                    aligned = (method in ("", "capture_history") and
-                               "label_valid" in row and "command_age_ms" in row)
+                    if method not in ("", "capture_history"):
+                        skipped += 1
+                        continue
+                    aligned = "label_valid" in row and "command_age_ms" in row
                     alignment = "capture_history" if aligned else "legacy_unknown"
-                    if method == "teacher_same_frame":
-                        try:
-                            captured = float(row["timestamp_ms"])
-                            decided = float(row["decision_timestamp_ms"])
-                            age = float(row["decision_age_ms"])
-                            aligned = (int(row.get("label_valid", "0")) == 1 and
-                                       np.isfinite([captured, decided, age]).all() and
-                                       captured >= 0 and decided >= captured and 0 <= age < 200 and
-                                       abs((decided - captured) - age) <= 1)
-                        except (KeyError, ValueError, TypeError):
-                            aligned = False
-                        if not aligned:
-                            skipped += 1
-                            continue
-                        alignment = method
                     if require_aligned and not aligned:
                         skipped += 1
                         continue
@@ -113,11 +100,7 @@ def index_samples(raw_dir, require_aligned=False):
                                     "path": str(image_path), "steer": steer,
                                     "timestamp_ms": row.get("timestamp_ms", ""),
                                     "command_age_ms": row.get("command_age_ms", ""),
-                                    "alignment": alignment,
-                                    "label_method": method or alignment,
-                                    "decision_timestamp_ms": row.get("decision_timestamp_ms", ""),
-                                    "decision_age_ms": row.get("decision_age_ms", ""),
-                                    "confidence": row.get("confidence", "")})
+                                    "alignment": alignment})
                 except (ValueError, TypeError) as error:
                     raise ValueError(f"{log_path}, linha {reader.line_num}: {error}") from error
     if legacy:
@@ -134,8 +117,7 @@ def write_split(directory, split, samples, rng):
                                   shape=(count, config.IMG_HEIGHT, config.IMG_WIDTH, 1))
     y = np.lib.format.open_memmap(directory / f"y_{split}.npy", mode="w+", dtype=np.float32,
                                   shape=(count,))
-    columns = ["index", "session", "frame", "augmentation", "timestamp_ms", "command_age_ms", "alignment",
-               "label_method", "decision_timestamp_ms", "decision_age_ms", "confidence"]
+    columns = ["index", "session", "frame", "augmentation", "timestamp_ms", "command_age_ms", "alignment"]
     with (directory / f"sources_{split}.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=columns)
         writer.writeheader()
@@ -188,7 +170,6 @@ def preprocessar_dataset(raw_dir=config.DATASET_RAW_DIR, output_dir=config.DATAS
                              "brightness_range": config.AUG_BRIGHTNESS_RANGE,
                              "contrast_range": list(config.AUG_CONTRAST_RANGE)},
             "filter": {"min_throttle": config.MIN_THROTTLE, "max_command_age_ms": 300,
-                       "max_teacher_decision_age_ms_exclusive": 200,
                        "require_aligned": require_aligned},
             "splits": metadata, "source_summary": summary})
         temporary.rename(output)
@@ -206,6 +187,6 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", default=config.DATASET_PROC_DIR)
     parser.add_argument("--split-file", help="JSON com listas train, val, test de nomes de sessões")
     parser.add_argument("--require-aligned", action="store_true",
-                        help="Exige alinhamento por historico de comandos ou decisao teacher_same_frame validada")
+                        help="Exige alinhamento comprovado pelo historico de comandos")
     args = parser.parse_args()
     preprocessar_dataset(args.raw_dir, args.output_dir, args.split_file, args.require_aligned)

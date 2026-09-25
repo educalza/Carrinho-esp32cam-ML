@@ -66,11 +66,7 @@ Ao iniciar a gravação, a ESP32-CAM cria uma sessão no cartão SD contendo:
 
 Use sessões diferentes para variar sentido da volta, posição inicial, iluminação, velocidade, retas e curvas. A separação posterior é feita por sessão, portanto uma gravação inteira permanece em apenas um conjunto.
 
-### 3. Coleta opcional com piloto professor
-
-`firmware/esp32cam_teacher_recorder` oferece um piloto independente baseado em visão clássica. Ele estima a faixa por contraste e geometria e pode gerar demonstrações automaticamente. Esse modo não usa a rede neural e deve ser validado na pista antes de produzir dados de treinamento.
-
-### 4. Análise dos dados
+### 3. Análise dos dados
 
 Copie as sessões do cartão para uma pasta local `imagens_treino*` e execute:
 
@@ -80,7 +76,7 @@ py .\ml_pipeline\01_analisar_dataset.py
 
 O relatório mostra a distribuição de direção, aceleração e exemplos de imagens. Verifique especialmente o equilíbrio entre esquerda, reta e direita, além da diversidade de iluminação e pista.
 
-### 5. Pré-processamento
+### 4. Pré-processamento
 
 ```powershell
 py .\ml_pipeline\02_preprocessar.py --raw-dir .\imagens_treino --output-dir .\dataset_processado_novo
@@ -88,7 +84,7 @@ py .\ml_pipeline\02_preprocessar.py --raw-dir .\imagens_treino --output-dir .\da
 
 O pipeline valida os registros, separa sessões inteiras em treino, validação e teste e gera os arrays NumPy. Somente o treino recebe aumento de dados. Use `--require-aligned` quando quiser aceitar apenas amostras cuja associação entre imagem e comando foi comprovada.
 
-### 6. Treinamento
+### 5. Treinamento
 
 ```powershell
 py .\ml_pipeline\03_treinar_modelo.py --dataset-dir .\dataset_processado_novo --model-dir .\modelo_novo
@@ -96,7 +92,7 @@ py .\ml_pipeline\03_treinar_modelo.py --dataset-dir .\dataset_processado_novo --
 
 O treinamento usa o conjunto de validação para escolher o melhor checkpoint. As configurações principais ficam em `ml_pipeline/config.py`. Sempre use um diretório novo para não substituir um modelo anterior.
 
-### 7. Conversão para TensorFlow Lite Micro
+### 6. Conversão para TensorFlow Lite Micro
 
 ```powershell
 py .\ml_pipeline\04_converter_tflite.py --dataset-dir .\dataset_processado_novo --model-dir .\modelo_novo
@@ -104,7 +100,7 @@ py .\ml_pipeline\04_converter_tflite.py --dataset-dir .\dataset_processado_novo 
 
 A conversão produz um modelo INT8 e o header C++ `modelo_linha.h`. A calibração da quantização usa somente amostras de treino.
 
-### 8. Avaliação
+### 7. Avaliação
 
 Durante os ajustes, consulte a validação:
 
@@ -114,7 +110,7 @@ py .\ml_pipeline\avaliar_precisao.py --split val --dataset-dir .\dataset_process
 
 Use o teste reservado apenas para a avaliação final. Observe MAE, MSE, R², percentil 95 do erro, acerto do lado das curvas e resultados separados por direção e sessão. Acertar o lado não garante que a intensidade do esterçamento seja suficiente.
 
-### 9. Instalação do modelo
+### 8. Instalação do modelo
 
 Depois de aprovar o modelo INT8, copie o header gerado para:
 
@@ -124,7 +120,7 @@ firmware/esp32cam_autonomous/modelo_linha.h
 
 Grave `firmware/esp32cam_autonomous` somente na ESP32-CAM. A ESP32 DevKit não precisa ser atualizada quando o protocolo permanece o mesmo.
 
-### 10. Execução autônoma
+### 9. Execução autônoma
 
 A ESP32-CAM captura o frame, reproduz o pré-processamento do treino, executa a CNN e envia o comando atual à ESP32 DevKit. O firmware vigente usa diretamente a direção prevista pelo modelo; não executa busca, ré ou recuperação heurística da linha.
 
@@ -175,19 +171,11 @@ O pré-processamento escreve diretamente no tensor INT8, e o firmware tenta mant
 
 ## Visão computacional
 
-O projeto utiliza visão computacional de duas formas diferentes.
-
 ### Processamento usado pela rede neural
 
 No modo autônomo, a OV2640 captura imagens QVGA em escala de cinza. O firmware reduz a imagem para 96 × 96 usando a mesma média inteira 2 × 2 empregada pelo pipeline, normaliza os pixels e os quantiza para INT8. Manter o mesmo processamento no computador e na placa evita diferença entre treinamento e inferência.
 
 A CNN recebe os pixels processados e aprende sozinha os padrões relevantes. Não há uma regra explícita dizendo onde está a linha; essa representação é aprendida a partir dos exemplos e comandos.
-
-### Visão clássica do piloto professor
-
-O piloto professor analisa contraste, segmentos escuros, continuidade vertical e posição da faixa em várias regiões da imagem. A partir da geometria observada, calcula erro lateral e curvatura para um controlador PD.
-
-Essa abordagem é interpretável e não precisa de treinamento, mas depende de limiares e pode falhar com sombras, reflexos, bifurcações, cruzamentos ou quando a linha sai do campo da câmera. Ela é uma ferramenta separada para coleta e comparação, não participa do piloto ML atual.
 
 ### Iluminação e câmera
 
@@ -205,7 +193,6 @@ Mais luz não significa automaticamente uma imagem melhor. Exposição automáti
 |---|---|---|
 | `firmware/esp32_motor_controller` | ESP32 DevKit | Servo, motores, PWM, protocolo UART e failsafe |
 | `firmware/esp32cam_server` | ESP32-CAM | Controle manual via Wi-Fi, stream e gravação no SD |
-| `firmware/esp32cam_teacher_recorder` | ESP32-CAM | Coleta automática com visão clássica |
 | `firmware/esp32cam_autonomous` | ESP32-CAM | Inferência CNN INT8 e pilotagem autônoma |
 
 ## Estrutura do repositório

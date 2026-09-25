@@ -101,34 +101,6 @@ class PipelineIntegrationTests(unittest.TestCase):
                 "100,frame_00000.jpg,-0.4,0.3,20,1\n"
                 "150,frame_00001.jpg,0.5,0.4,10,1\n", encoding="utf-8")
 
-    def test_teacher_alignment_and_provenance_survive_processing(self):
-        for session in self.raw.glob("session_*"):
-            (session / "log.csv").write_text(
-                "timestamp_ms,frame,steer,throttle,label_valid,label_method,decision_timestamp_ms,decision_age_ms,confidence\n"
-                "100,frame_00000.jpg,-0.4,0.3,1,teacher_same_frame,120,20,0.8\n"
-                "150,frame_00001.jpg,0.5,0.4,1,teacher_same_frame,171,20,0.9\n", encoding="utf-8")
-        output = self.root / "teacher"
-        preprocess.preprocessar_dataset(self.raw, output, require_aligned=True)
-        for split in ("train", "val", "test"):
-            with (output / f"sources_{split}.csv").open(newline="", encoding="utf-8") as stream:
-                rows = list(csv.DictReader(stream))
-            self.assertTrue(rows)
-            self.assertTrue(all(row["alignment"] == "teacher_same_frame" for row in rows))
-            self.assertTrue(all(row["label_method"] == "teacher_same_frame" for row in rows))
-            self.assertTrue(all(row["decision_age_ms"] == "20" for row in rows))
-            self.assertTrue(all(row["confidence"] in ("0.8", "0.9") for row in rows))
-
-    def test_teacher_invalid_timing_is_rejected_even_without_strict_mode(self):
-        session = self.raw / "session_000"
-        for decided, age in (("300", "200"), ("99", "0"), ("120", "0"),
-                             ("nan", "20"), ("120", "nan"), ("", "20")):
-            with self.subTest(decided=decided, age=age):
-                (session / "log.csv").write_text(
-                    "timestamp_ms,frame,steer,throttle,label_valid,label_method,decision_timestamp_ms,decision_age_ms\n"
-                    f"100,frame_00000.jpg,0.4,0.3,1,teacher_same_frame,{decided},{age}\n", encoding="utf-8")
-                samples, _ = preprocess.index_samples(self.raw)
-                self.assertFalse(any(row["session"] == "session_000" for row in samples))
-
     def build(self):
         output = self.root / "processed"
         preprocess.preprocessar_dataset(self.raw, output)
